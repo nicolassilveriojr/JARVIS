@@ -1,11 +1,21 @@
 import os
 import sys
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"), override=True)
-except ImportError:
-    pass
+def _carregar_env():
+    """Carrega o .env ignorando BOM UTF-8 do Windows"""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, "r", encoding="utf-8-sig") as f:  # utf-8-sig remove BOM automaticamente
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, val = line.partition("=")
+                os.environ.setdefault(key.strip(), val.strip())
+
+_carregar_env()
 
 try:
     from google import genai
@@ -43,14 +53,14 @@ class JarvisBrain:
         self._init_clients()
 
     def _init_clients(self):
-        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"), override=True)
-        groq_key  = os.getenv("GROQ_API_KEY", "")
-        grok_key  = os.getenv("GROK_API_KEY", "")
-        gemini_key = os.getenv("GEMINI_API_KEY", "")
+        _carregar_env()  # recarrega sempre que inicializar
+        groq_key   = os.getenv("GROQ_API_KEY", "").strip()
+        grok_key   = os.getenv("GROK_API_KEY", "").strip()
+        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
 
-        self.groq_client  = None
-        self.grok_client  = None
-        self.gemini_key   = gemini_key
+        self.groq_client = None
+        self.grok_client = None
+        self.gemini_key  = gemini_key
 
         if groq_key and OpenAI:
             self.groq_client = OpenAI(api_key=groq_key, base_url="https://api.groq.com/openai/v1")
