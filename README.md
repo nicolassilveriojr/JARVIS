@@ -10,6 +10,12 @@
 **Assistente de IA pessoal inspirado no JARVIS do Homem de Ferro.**  
 Controle seu PC por voz ou texto, com interface futurista e inteligência artificial.
 
+<br>
+
+[![Download](https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20Download%20EXE-Google%20Drive-00d4e8?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/18dFIG3kSTyjYmfF0h1mgvL27KYJ--lpK/view?usp=sharing)
+
+> Baixe o `.exe` e rode direto — sem precisar instalar Python!
+
 </div>
 
 ---
