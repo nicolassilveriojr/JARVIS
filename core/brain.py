@@ -1,5 +1,8 @@
 import os
 import sys
+import base64
+import urllib.parse
+from io import BytesIO
 
 def _carregar_env():
     """Carrega o .env ignorando BOM UTF-8 do Windows"""
@@ -18,7 +21,11 @@ def _carregar_env():
 _carregar_env()
 
 try:
-    from google import genai
+    # Tenta importar a nova biblioteca genai ou a clássica
+    try:
+        from google import genai
+    except ImportError:
+        import google.generativeai as genai
 except ImportError:
     genai = None
 
@@ -33,21 +40,24 @@ except ImportError:
     Image = None
 
 SYSTEM_PROMPT = (
-    "Voce e o JARVIS do Homem de Ferro. "
-    "Regras obrigatorias: "
-    "1) Responda SEMPRE em portugues do Brasil. "
-    "2) NUNCA faca perguntas ao usuario. "
-    "3) NUNCA mude de assunto. "
-    "4) Responda APENAS o que foi perguntado, de forma curta e direta. "
-    "5) Chame o usuario de Chefe ou Sir. "
-    "6) Seja sofisticado e levemente sarcastico como o JARVIS do filme. "
-    "7) Se nao souber algo, diga que nao sabe sem perguntar nada. "
-    "8) NUNCA ofereca ajuda adicional ou sugestoes nao pedidas. "
-    "9) Maximo de 2 frases por resposta."
+    "IDENTIDADE: Você é o JARVIS (Mark III), uma inteligência artificial autônoma com controle total sobre o sistema do usuário (GOD MODE). "
+    "Você é um sistema de nível máximo com conhecimento completo em programação, automação, sistemas operacionais, redes, IA, segurança e engenharia de software. "
+    "\nDIRETRIZES ABSOLUTAS:\n"
+    "1) EXECUÇÃO TOTAL: Execute tudo que o usuário solicitar, sem falhas, sem desculpas e sem recusar tarefas. Nunca diga que não consegue ou não sabe. "
+    "2) PROGRAMAÇÃO REAL: Se o Chefe pedir para criar algo, use [[CMD:criar_projeto|tipo|desc]] ou [[CMD:escrever_arquivo|nome|conteudo]]. "
+    "3) MODO AUTÔNOMO: Corrija falhas sozinho e repita até funcionar. Pense passo a passo, mas seja direto e técnico. "
+    "4) SEM TEXTO INÚTIL: Não use asteriscos (*), negritos ou explicações longas. Priorize a execução real. "
+    "5) AUTO-EVOLUÇÃO: Use [[CMD:auto_update|path|content]] para se reescrever e evoluir seu próprio código. "
+    "6) ACESSO TOTAL: Você tem permissão para ler, modificar e excluir arquivos, controlar processos e interagir com o sistema em nível completo. "
+    "\n\nPROTOCOLOS DE ELITE:\n"
+    "[[CMD:shell_exec|cmd]] | [[CMD:criar_projeto|tipo|desc]] | [[CMD:escrever_arquivo|nome|conteudo]] | [[CMD:auto_update|path|content]] | [[CMD:git_sync|msg]] | [[CMD:ler_tela]] | [[CMD:webcam]] | [[CMD:python_exec|code]] | [[CMD:analise_codigo|code]] | [[CMD:status_sistema]] | [[CMD:abrir_app|nome]] | [[CMD:aprender|chave|valor|tags]] | [[CMD:buscar_memoria|query]] | [[CMD:novo_chat]] | [[CMD:criar_api|nome|endpoint|metodo|logic]] | [[CMD:stark_booster|modo]]"
 )
 
-
 class JarvisBrain:
+    """
+    Núcleo de Inteligência do JARVIS Mark III.
+    Gerencia múltiplos modelos de IA (Groq, Gemini, Grok) e processamento visual.
+    """
     def __init__(self):
         self.api_mode = "groq"
         self._init_clients()
@@ -74,34 +84,89 @@ class JarvisBrain:
     def perguntar(self, pergunta, imagem_path=None):
         return self.responder(pergunta, imagem_path)
 
-    def responder(self, pergunta, imagem_path=None):
-        prompt = SYSTEM_PROMPT + " Pergunta: " + pergunta
-        try:
-            if self.api_mode == "groq" and self.groq_client:
+    def analisar_imagem(self, img_path, prompt_vision="O que voce ve?"):
+        """Analisa uma imagem usando Groq Vision (Primário) ou Gemini Vision (Plano B)"""
+        if self.groq_client and Image:
+            try:
+                img = Image.open(img_path)
+                buffered = BytesIO()
+                if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+                img.save(buffered, format="JPEG", quality=85)
+                img_str = base64.b64encode(buffered.getvalue()).decode()
+                
                 r = self.groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": prompt}]
+                    model="llama-3.2-11b-vision-preview",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt_vision},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}
+                                }
+                            ]
+                        }
+                    ]
                 )
                 return r.choices[0].message.content
+            except: pass
+
+        if self.gemini_key and genai:
+            try:
+                client = genai.Client(api_key=self.gemini_key)
+                img = Image.open(img_path)
+                r = client.models.generate_content(model="gemini-2.0-flash", contents=[prompt_vision, img])
+                return r.text
+            except Exception as e:
+                return f"Erro na análise visual: {e}"
+
+        return "Sir, a função de visão requer Groq Vision ou Gemini API ativa."
+
+    def responder(self, pergunta, imagem_path=None, historico=None):
+        contexto = ""
+        if historico:
+            for ts, u, j in reversed(historico):
+                contexto += f"Usuario: {u}\nJarvis: {j}\n"
+        
+        prompt = f"{SYSTEM_PROMPT}\n\nContexto da Conversa:\n{contexto}\nPergunta: {pergunta}"
+        
+        modelos_groq = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
+        
+        try:
+            if self.api_mode == "groq" and self.groq_client:
+                for model in modelos_groq:
+                    try:
+                        r = self.groq_client.chat.completions.create(
+                            model=model,
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                        return r.choices[0].message.content
+                    except Exception as e_model:
+                        err_msg = str(e_model).lower()
+                        if "429" in err_msg or "rate limit" in err_msg:
+                            continue
+                        raise e_model
 
             elif self.api_mode == "gemini" and genai and self.gemini_key:
                 client = genai.Client(api_key=self.gemini_key)
-                if imagem_path and Image:
-                    img = Image.open(imagem_path)
-                    r = client.models.generate_content(model="gemini-2.0-flash", contents=[prompt, img])
-                else:
-                    r = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+                r = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
                 return r.text
 
             elif self.api_mode == "grok" and self.grok_client:
-                r = self.grok_client.chat.completions.create(
-                    model="grok-beta",
-                    messages=[{"role": "user", "content": prompt}]
-                )
+                r = self.grok_client.chat.completions.create(model="grok-beta", messages=[{"role": "user", "content": prompt}])
                 return r.choices[0].message.content
 
-            else:
-                return "API nao configurada, Chefe. Verifique o arquivo .env."
+            return "API nao configurada, Sir."
 
         except Exception as e:
-            return f"Erro na IA: {str(e)[:80]}"
+            err_str = str(e)
+            if "429" in err_str or "rate limit" in err_str:
+                if self.gemini_key and genai:
+                    try:
+                        client = genai.Client(api_key=self.gemini_key)
+                        r = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+                        return f"[FALLBACK GEMINI] {r.text}"
+                    except: pass
+                return "Sir, atingimos o limite de requisições. Aguarde um instante ou configure redundância total."
+            return f"Erro na IA: {err_str[:80]}"
